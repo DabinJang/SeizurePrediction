@@ -229,7 +229,7 @@ columns=['name','start','end','state']
 
 for current_patient in ordered_seizure_info_list:
     name = current_patient['name']
-    name = name[:3]+'0'+name[3:]
+    name = name[:3].upper()+'0'+name[3:]
     for state in ictal_section_name:
         for start, end in current_patient[state]:
             patient_segment_list.append([name, start, end, state])

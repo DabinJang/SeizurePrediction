@@ -4,7 +4,7 @@ import pyedflib
 import pandas as pd
 import csv
 
-data_path = "C:\\Users\\jangdabin\\Desktop\\Epilepsy\\Code\\data\\snu"
+data_path = ".\\data\\snu"
 
 file_list = natsort.natsorted(os.listdir(data_path)) # 이름순으로 순서 정렬
 patient_folder_list = []
@@ -192,7 +192,7 @@ for patient in total_seizure_info_list:
 
 
 df = pd.DataFrame(patient_segments_list,columns=['name','start','end','state'])
-df.to_csv('./patient_info.csv',index=False)
+df.to_csv('./patient_info_snu.csv',index=False)
 
 
 
