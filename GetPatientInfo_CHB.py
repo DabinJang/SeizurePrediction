@@ -60,7 +60,8 @@ def get_summary_info(path: str, file: str)-> list:
 
         return seizure_info_list            
 
-data_path = f".\\data\\chb"
+
+data_path = f"C:\\Users\\{os.getlogin()}\\Desktop\\chb-mit-scalp-eeg-database-1.0.0"
 
 file_list = natsort.natsorted(os.listdir(data_path)) # 이름순으로 순서 정렬
 patient_folder_list = []
@@ -235,4 +236,4 @@ for current_patient in ordered_seizure_info_list:
             patient_segment_list.append([name, start, end, state])
 
 df = pd.DataFrame(patient_segment_list, columns=['name','start','end','state'])
-df.to_csv('./patient_info_chb.csv',index=False)
+df.to_csv('./patient_info_chb_origin.csv',index=False)
