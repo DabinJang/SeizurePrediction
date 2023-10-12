@@ -12,8 +12,8 @@ from tensorflow.keras.models import Model
 from dilationmodel import dilationnet, dilation1ch, dilation_layer
 #from test import dilationnet, dilation1ch
 
-CHB_FS = 250
-SNU_FS = 256
+CHB_FS = 256
+SNU_FS = 250 
 
 batch = 50
 n_signal = 23
