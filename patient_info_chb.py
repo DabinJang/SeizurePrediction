@@ -4,13 +4,14 @@ from pyedflib.highlevel import read_edf, read_edf_header
 import pandas as pd
 import csv
 from datetime import datetime, timedelta
+import re
 
 ictal_section_name = ['ictal', 'preictal_late', 'preictal_ontime', 'preictal_early', 'postictal', 'interictal']
 
 SOP = 30 #minutes
 SPH = 2 #minutes
-PREICTAL_EARLY_DURATION = 60 # minutes
-POSTICTAL_DURATION = 120 # minutes
+PREICTAL_EARLY_DURATION = 60 # min
+POSTICTAL_DURATION = 120 # min
 
 def get_summary_info(path: str, file: str)-> list:
     """_summary_
@@ -60,7 +61,8 @@ def get_summary_info(path: str, file: str)-> list:
 
         return seizure_info_list            
 
-def make_patient_info_chb():
+
+def patient_info_chb():
     data_path = f"C:\\Users\\{os.getlogin()}\\Desktop\\chb-mit-scalp-eeg-database-1.0.0"
 
     file_list = natsort.natsorted(os.listdir(data_path)) # 이름순으로 순서 정렬
@@ -240,7 +242,7 @@ def make_patient_info_chb():
     
     
 def patient_info_chb_split():
-    DATA_PATH = ".\\data\\CHB"
+    DATA_PATH = "./data/CHB"
     patient_info = pd.read_csv("patient_info_chb_origin.csv")
     patient_info.head()
     
@@ -275,4 +277,53 @@ def patient_info_chb_split():
                                                 min(info_end, edf_end),
                                                 state])
 
-    pd.DataFrame(patient_info_split_list, columns=['name', 'start', 'end', 'state']).to_csv('./split_patient_info_chb.csv')
+    pd.DataFrame(patient_info_split_list, columns=['name', 'start', 'end', 'state']).to_csv('./patient_info_chb_split.csv', index=False)
+
+
+def patient_info_chb_segment():
+    WINDOW_SIZE = 2 # sec
+    OVERLAP = 0 # sec
+    FREQUENCY_CHB = 256 #Hz
+
+    origin = pd.read_csv("./patient_info_chb_split.csv")
+
+    patient_info_chb_segment = list()
+
+    for state in ictal_section_name:
+        total_current_state = origin[origin['state']==state]
+
+        # short-term data augmentation
+        if state in ['ictal', 'preictal_late', 'preictal_ontime', 'preictal_early']:
+            OVERLAP = 1
+
+        # long-term data without overlap
+        if state in ["interictal", "postictal"]:
+            OVERLAP = 0
+
+        for current_state in total_current_state.itertuples():
+            filename, start, end = current_state[1], current_state[2], current_state[3]
+
+            if end-start<WINDOW_SIZE:
+                continue
+            
+            dirname = filename.split('_')[0]
+            filepath = os.path.join('./data/CHB/',dirname,filename+'.edf')
+            
+            header = read_edf_header(filepath)
+            startdate = header['startdate']
+            
+            start_from_0sec = int(start-startdate.timestamp())*FREQUENCY_CHB
+            end_from_0sec = int(end-startdate.timestamp())*FREQUENCY_CHB            
+
+            step_size = (WINDOW_SIZE-OVERLAP)*FREQUENCY_CHB #index
+            window_size_with_frequency = int(WINDOW_SIZE*FREQUENCY_CHB)
+            for window_start_index in range(start_from_0sec, end_from_0sec, step_size):
+                # ["name", "start", "duration", "state", "frequency"]
+                current_segment = [filename, window_start_index, window_size_with_frequency, state, FREQUENCY_CHB]
+                patient_info_chb_segment.append(current_segment)
+                
+    pd.DataFrame(patient_info_chb_segment, columns=["name", "start", "duration", "state", "frequency"]).to_csv('./patient_info_chb_segment.csv', index=False)
+
+
+if __name__ == "__main__":
+    pass
