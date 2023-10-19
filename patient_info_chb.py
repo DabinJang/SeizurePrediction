@@ -12,6 +12,8 @@ SOP = 30 #minutes
 SPH = 2 #minutes
 PREICTAL_EARLY_DURATION = 60 # min
 POSTICTAL_DURATION = 120 # min
+CHB_DIR = './data/CHB/'
+
 
 def get_summary_info(path: str, file: str)-> list:
     """_summary_
@@ -282,9 +284,7 @@ def patient_info_chb_split():
 
 def patient_info_chb_segment():
     WINDOW_SIZE = 2 # sec
-    OVERLAP = 0 # sec
-    FREQUENCY_CHB = 256 #Hz
-
+    overlap = 0
     origin = pd.read_csv("./patient_info_chb_split.csv")
 
     patient_info_chb_segment = list()
@@ -294,11 +294,11 @@ def patient_info_chb_segment():
 
         # short-term data augmentation
         if state in ['ictal', 'preictal_late', 'preictal_ontime', 'preictal_early']:
-            OVERLAP = 1
+            overlap = 1
 
         # long-term data without overlap
         if state in ["interictal", "postictal"]:
-            OVERLAP = 0
+            overlap = 0
 
         for current_state in total_current_state.itertuples():
             filename, start, end = current_state[1], current_state[2], current_state[3]
@@ -307,23 +307,23 @@ def patient_info_chb_segment():
                 continue
             
             dirname = filename.split('_')[0]
-            filepath = os.path.join('./data/CHB/',dirname,filename+'.edf')
+            filepath = os.path.join(CHB_DIR, dirname, filename+'.edf')
             
             header = read_edf_header(filepath)
             startdate = header['startdate']
             
-            start_from_0sec = int(start-startdate.timestamp())*FREQUENCY_CHB
-            end_from_0sec = int(end-startdate.timestamp())*FREQUENCY_CHB            
+            start_from_0sec = int(start-startdate.timestamp())
+            end_from_0sec = int(end-startdate.timestamp())           
 
-            step_size = (WINDOW_SIZE-OVERLAP)*FREQUENCY_CHB #index
-            window_size_with_frequency = int(WINDOW_SIZE*FREQUENCY_CHB)
-            for window_start_index in range(start_from_0sec, end_from_0sec, step_size):
+            step_size = (WINDOW_SIZE-overlap) #sec
+            window_start_index = start_from_0sec
+            while (window_start_index+step_size)<end_from_0sec:
                 # ["name", "start", "duration", "state", "frequency"]
-                current_segment = [filename, window_start_index, window_size_with_frequency, state, FREQUENCY_CHB]
+                current_segment = [filename, window_start_index, WINDOW_SIZE, state]
                 patient_info_chb_segment.append(current_segment)
-                
-    pd.DataFrame(patient_info_chb_segment, columns=["name", "start", "duration", "state", "frequency"]).to_csv('./patient_info_chb_segment.csv', index=False)
-
+                window_start_index += step_size
+    
+    df = pd.DataFrame(patient_info_chb_segment, columns=["name", "start", "duration", "state"])
 
 if __name__ == "__main__":
-    pass
+    patient_info_chb_segment()
