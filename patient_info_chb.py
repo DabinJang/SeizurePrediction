@@ -5,7 +5,7 @@ import pandas as pd
 import csv
 from datetime import datetime, timedelta
 import re
-
+import random
 ictal_section_name = ['ictal', 'preictal_late', 'preictal_ontime', 'preictal_early', 'postictal', 'interictal']
 
 SOP = 30 #minutes
@@ -15,7 +15,7 @@ POSTICTAL_DURATION = 120 # min
 CHB_DIR = './data/CHB/'
 
 
-def get_summary_info(path: str, file: str)-> list:
+def get_chb_summary_info(summary_path: str)-> list:
     """_summary_
 
     Args:
@@ -27,7 +27,7 @@ def get_summary_info(path: str, file: str)-> list:
             seizure_file = {'name': filename,
                             'seizure': [[start, end], [start, end], ...]}
     """
-    with open(os.path.join(path, file), 'r') as f:        
+    with open(summary_path, 'r') as f:        
         contents = f.read().split("\n\n")
         seizure_info_list = []
 
@@ -106,8 +106,8 @@ def patient_info_chb():
                                 'postictal': list(),
                                 'interictal': list()}
 
-        summary = patient+'-summary.txt'
-        summary_info_list = get_summary_info(path, summary)
+        summary_path = os.path.join(CHB_DIR, patient, patient+'-summary.txt')
+        summary_info_list = get_chb_summary_info(summary_path)
         
         for summary_info in summary_info_list:
             edf_header = read_edf_header(os.path.join(path, summary_info['name']))
@@ -239,19 +239,24 @@ def patient_info_chb():
             for start, end in current_patient[state]:
                 patient_segment_list.append([name, start, end, state])
 
-    df = pd.DataFrame(patient_segment_list, columns=['name','start','end','state'])
+    df = pd.DataFrame(patient_segment_list, columns=['name','start','end','state'])    
     df.to_csv('./patient_info_chb_origin.csv',index=False)
     
     
-def patient_info_chb_split():
+def patient_info_chb_interval():
     DATA_PATH = "./data/CHB"
     patient_info = pd.read_csv("patient_info_chb_origin.csv")
     patient_info.head()
     
     # dict_keys(['technician', 'recording_additional', 'patientname', 'patient_additional', 'patientcode', 'equipment', 'admincode', 'sex', 'startdate', 'birthdate', 'gender', 'Duration', 'SignalHeaders', 'channels', 'annotations'])
-    patient_info_split_list = []
-
+    patient_info_train_list = []
+    patient_info_test_list = []
+    
     chb_dir_list = [dir_name for dir_name in os.listdir(DATA_PATH) if re.match("CHB[0-9]{3}", dir_name)]
+    
+    random.seed(100)
+    patient_for_train = random.sample(chb_dir_list, k=int(len(chb_dir_list)*0.8))
+    print(len(patient_for_train), patient_for_train)
     for chb_dir in chb_dir_list:
         current_patient_info = patient_info[patient_info['name']==chb_dir]
         edf_dir_path = os.path.join(DATA_PATH, chb_dir)
@@ -264,7 +269,7 @@ def patient_info_chb_split():
             edf_start = int(startdate.timestamp())
             edf_end = int((startdate + timedelta(seconds=duration)).timestamp())
             edf_name = edf[:-4]
-            
+
             for info in current_patient_info.itertuples(index=False):
                 _, info_start, info_end, state = info
                         
@@ -274,13 +279,23 @@ def patient_info_chb_split():
                 if edf_end<info_start:
                     break
                 
-                patient_info_split_list.append([edf_name,
-                                                max(info_start, edf_start),
-                                                min(info_end, edf_end),
-                                                state])
+                if chb_dir in patient_for_train:
+                    patient_info_train_list.append([edf_name,
+                                                    max(info_start, edf_start)-edf_start,
+                                                    min(info_end, edf_end)-edf_start,
+                                                    state])
+                
+                else:
+                    patient_info_test_list.append([edf_name,
+                                                    max(info_start, edf_start)-edf_start,
+                                                    min(info_end, edf_end)-edf_start,
+                                                    state])
+                    
 
-    pd.DataFrame(patient_info_split_list, columns=['name', 'start', 'end', 'state']).to_csv('./patient_info_chb_split.csv', index=False)
-
+    df_train = pd.DataFrame(patient_info_train_list, columns=['name', 'start', 'end', 'state'])
+    df_test = pd.DataFrame(patient_info_test_list, columns=['name', 'start', 'end', 'state'])
+    df_train.to_csv('./patient_info_chb_train.csv', index=False)
+    df_test.to_csv('./patient_info_chb_test.csv', index=False)
 
 def patient_info_chb_segment():
     WINDOW_SIZE = 2 # sec
@@ -326,4 +341,4 @@ def patient_info_chb_segment():
     df = pd.DataFrame(patient_info_chb_segment, columns=["name", "start", "duration", "state"])
 
 if __name__ == "__main__":
-    patient_info_chb_segment()
+    pass
