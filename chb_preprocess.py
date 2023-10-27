@@ -14,58 +14,52 @@ PREICTAL_EARLY_DURATION = 60 # min
 POSTICTAL_DURATION = 120 # min
 CHB_DIR = './data/CHB/'
 
-
-def get_chb_summary_info(summary_path: str)-> list:
-    """_summary_
-
-    Args:
-        path (str): directory path
-        file (str): name of file as "file.txt"
-
-    Returns:
-        list: it contains seizure_file dictionary.
-            seizure_file = {'name': filename,
-                            'seizure': [[start, end], [start, end], ...]}
-    """
-    with open(summary_path, 'r') as f:        
+def get_chb_summary_info(summary_path: str):
+    with open(summary_path, 'r') as f:
         contents = f.read().split("\n\n")
-        seizure_info_list = []
+    
+    seizure_info_list = []
 
-        for edf_info in contents:
-            try:
-                info = edf_info.split("\n")
+    for info in contents:
+        try:
+            info = info.split("\n")
+            file_name_idx = None
+            number_of_seizures_idx = None
+            
+            for idx, line in enumerate(info):
+                if ('Name' in line) or ('name' in line):
+                    file_name_idx = idx
                 
-                for idx, line in enumerate(info):
-                    if ('Name' in line) or ('name' in line):
-                        file_name_idx = idx
-                    
-                    if ('Number' in line) or ('number' in line):
-                        number_of_seizures_idx = idx
+                if ('Number' in line) or ('number' in line):
+                    number_of_seizures_idx = idx
+
+            # exception point
+            # if "number of seizure" not in info: Exception
+            num_of_seizure = int(list(info[number_of_seizures_idx].split(": "))[-1])
+            
+            if num_of_seizure == 0:
+                continue
+            
+            filename = list(info[file_name_idx].split(': '))[-1]
+            seizure_file = {'name': filename,
+                            'seizure': []}
+
+            for i in range(num_of_seizure):
+                seizure_start_idx = number_of_seizures_idx + 2*i + 1
+                seizure_end_idx = number_of_seizures_idx + 2*i + 2
+                seizure_start = int(info[seizure_start_idx].split(": ")[-1].rstrip(' seconds'))
+                seizure_end = int(info[seizure_end_idx].split(": ")[-1].rstrip(' seconds'))
                 
-                num_of_seizure = int(list(info[number_of_seizures_idx].split(": "))[-1])
+                seizure_file['seizure'].append([seizure_start, seizure_end])
+            seizure_info_list.append(seizure_file)     
+        
+        except: pass
                 
-                if num_of_seizure>0:
-                    filename = list(info[file_name_idx].split(': '))[-1]
-                    seizure_file = {'name': filename,
-                                    'seizure': []}
-
-                    for i in range(num_of_seizure):
-                        seizure_start_idx = number_of_seizures_idx + 2*i
-                        seizure_end_idx = number_of_seizures_idx + 2*i + 1
-                        seizure_start = int(info[seizure_start_idx].split(": ")[-1].rstrip(' seconds'))
-                        seizure_end = int(info[seizure_end_idx].split(": ")[-1].rstrip(' seconds'))
-                        
-                        seizure_file['seizure'].append([seizure_start, seizure_end])
-
-                    seizure_info_list.append(seizure_file)       
-            except:
-                pass
-
-        return seizure_info_list            
+        return seizure_info_list
 
 
 def patient_info_chb():
-    data_path = f"C:\\Users\\{os.getlogin()}\\Desktop\\chb-mit-scalp-eeg-database-1.0.0"
+    data_path = f"/home/c/Users/jangdabin/Desktop/chb-mit-scalp-eeg-database-1.0.0"
 
     file_list = natsort.natsorted(os.listdir(data_path)) # 이름순으로 순서 정렬
     patient_folder_list = []
@@ -341,4 +335,4 @@ def patient_info_chb_segment():
     df = pd.DataFrame(patient_info_chb_segment, columns=["name", "start", "duration", "state"])
 
 if __name__ == "__main__":
-    pass
+    patient_info_chb()
