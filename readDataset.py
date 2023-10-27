@@ -7,16 +7,12 @@ import random
 import operator
 
 def GetBatchIndexes(data_len, batch_num):
-    batch_size = data_len / batch_num
+    batch_size = int(data_len / batch_num)
     idx_list = list(range(data_len))
-    # batch_seg_size = batch_size / 20
-    # idx_list = [ list(range(int(i*batch_seg_size), int((i+1)*batch_seg_size))) for i in range(batch_num*20) ]
-    #random.shuffle(idx_list)
-
+    np.random.shuffle(idx_list)
     batch_idx_mask = []
     for i in range(batch_num):
-        #batch_idx_mask.append(np.concatenate(idx_list[int(20*i) : int(20*(i+1))]))
-        batch_idx_mask.append(sorted( idx_list[int(batch_size*i) : int(batch_size*(i+1))] ))
+        batch_idx_mask.append(idx_list[batch_size*i:batch_size*(i+1)])
     return batch_idx_mask
 
 
@@ -52,23 +48,23 @@ def Interval2Segments(interval_list, data_path, window_size, sliding_size):
 def Segments2Data(segments):
     # segment[0] = 'filename', segment[1] = 'start', segment[2] = 'duration'
     channels = ['Fp1-AVG', 'F3-AVG', 'C3-AVG', 'P3-AVG', 'Fp2-AVG', 'F4-AVG', 'C4-AVG', 'P4-AVG', 'F7-AVG', 'T1-AVG', 'T3-AVG', 'T5-AVG', 'O1-AVG', 'F8-AVG', 'T2-AVG', 'T4-AVG', 'T6-AVG', 'O2-AVG', 'Fz-AVG', 'Cz-AVG', 'Pz-AVG']
+    channels_chb = ['F4-C4', 'F8-T8', 'T7-P7', 'P7-O1', 'P8-O2', 'FZ-CZ', 'P7-T7', 'FP2-F4', 'P3-O1', 'C4-P4', 'FP1-F3', 'F7-T7', 'CZ-PZ', 'T7-FT9', 'FP2-F8', 'FT9-FT10', 'C3-P3', 'T8-P8', 'FT10-T8', 'P4-O2', 'F3-C3', 'FP1-F7']
+    
     signal_for_all_segments = []
     name = None
     read_end = 0
     f = None
     cnt = 0
+    
+    segments.sort()
+    
     for idx, segment in enumerate(segments):
-        if (idx+1) % (int(len(segments)/20)) == 0 :
-            pass
-            #cnt+=1
-            #print(f"Data Loading {idx+1} / {len(segments)} ({cnt*5}%)... ")
         if not name == segment[0]:
             name = segment[0]
             if not f == None:
                 f.close()
             f = pyedflib.EdfReader(segment[0])
             skip_start = False   # 연속된 시간이면 한번에 읽기 위해 파일 읽는 시작 시간은 그대로 두고 끝 시간만 갱신함
-
 
         if not skip_start:
             interval_sets = [] # 연속된 구간이면 한번에 읽고 구간 정해진거에 따라 나누기 위해 구간 저장
@@ -97,49 +93,47 @@ def Segments2Data(segments):
         seg = []
         for i in range(len(interval_sets)):
             seg.append([])
-        try :
+
+       
+        if 'SNU' in name:
+            chn_num = len(channels)
             for channel in channels:
                 ch_idx = labels.index(channel)
-                edf_signal = f.readSignal(ch_idx,read_start,int(freq[ch_idx]*(read_end-read_start)))
+                edf_signal = f.readSignal(ch_idx,int(freq[ch_idx]*read_start),int(freq[ch_idx]*(read_end-read_start)))
                 
                 # 256 Hz이하일 경우 256Hz로 interpolation을 이용한 upsampling
                 if not freq[ch_idx] == 256:
                     signal = np.interp(x_upsample,x, edf_signal)
+                else:
+                    signal = edf_signal
                 
                 for j in range(len(interval_sets)):
+                    
                     seg[j].append( list(signal[int(interval_sets[j][0] * 256) : int(interval_sets[j][1] * 256) ]) )
         
-            for s in seg:    
-                signal_for_all_segments.append(s)
+        if 'CHB' in name:
+            try:
+                chn_num = len(channels_chb)
+                for channel in channels_chb:
+                    ch_idx = labels.index(channel)
+                    edf_signal = f.readSignal(ch_idx,int(freq[ch_idx]*read_start),int(freq[ch_idx]*(read_end-read_start)))
+                    # 256 Hz이하일 경우 256Hz로 interpolation을 이용한 upsampling
+                    if not freq[ch_idx] == 256:
+                        signal = np.interp(x_upsample,x, edf_signal)
+                    else:
+                        signal = edf_signal
+                    
+                    for j in range(len(interval_sets)):
+                        seg[j].append( list(signal[int(interval_sets[j][0] * 256) : int(interval_sets[j][1] * 256) ]) )
+        
+                for s in seg:    
+                    signal_for_all_segments.append(s)
+            except Exception as e:
+                print(e)
 
-        except Exception as e:
-            print("Freq : %d"%freq[ch_idx])
-            print("labels")
-            print(labels)
-            print("Read start : %d  Read end : %d"%(read_start,read_end))
-            print("minus : %d sample num : %d"%(read_end-read_start, (read_end-read_start)*freq[ch_idx]))
-            print(f'shape of x : {np.shape(x)}')
-            print(f'shape of edf_signal : {np.shape(edf_signal)}')
-            print(f'shape of signal     : {np.shape(signal)}')
-            print(f'shape_of_upsample   : {np.shape(x_upsample)}')
-            print(f'shape of seg        : {np.shape(seg[j])}')
-            print(f'file duration       : {f.getFileDuration()}')
-            print(f'filename : {name}')
-            print(segment)
-            print(e)
-            print(traceback.format_exc())
-            sys.exit()
         skip_start = False
+            
     if hasattr(f,'close'):
          f.close()
 
-    return np.array(signal_for_all_segments)
-
-
-####    test code    ####
-#test = [ ["D:/SNU_DATA/SNU003/SNU003.edf",0,2],["D:/SNU_DATA/SNU003/SNU003.edf",2,2],["D:/SNU_DATA/SNU003/SNU003.edf",3,2],
-#         ["D:/SNU_DATA/SNU003/SNU003.edf",5,2],["D:/SNU_DATA/SNU003/SNU003.edf",5,2]]
-#a = Segments2Data(test)
-# data = LoadDataset('C:/Users/hy105/Desktop/Prediction/patient_info.csv')
-# segments = Interval2Segments(data['ictal'],2,1)
-#print(segments[:100])
+    return np.array(signal_for_all_segments)/10

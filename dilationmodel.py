@@ -64,10 +64,14 @@ def dilation1ch(inputs):
 # n channel dilation model
 # input_shape = (batch_size, signal_ch, data_size)
 def dilationnet(inputs: Input):
-
-    channels = tf.split(inputs, inputs[0].shape[-3], axis=-3)
-    channels = [tf.reshape(x, shape=(-1, inputs[0].shape[-2], 1))
-                for x in channels]
+    shape = list(inputs[0].shape)
+    shape += [1]
+    input_1 = layers.Reshape(shape)(inputs)
+    print(input_1)
+    
+    channels = tf.split(input_1, shape[-3], axis=-3)
+    channels = [layers.Reshape((512, 1))(x) for x in channels]
+    print(channels[0])
 
     after_dilation = list()
     for i in range(len(channels)):
@@ -75,5 +79,5 @@ def dilationnet(inputs: Input):
 
     # output
     concat_layers = tf.concat(after_dilation, axis=-1)
-    x = layers.Dense(2, activation='softmax')(concat_layers)
+    x = layers.Dense(1)(concat_layers)
     return x

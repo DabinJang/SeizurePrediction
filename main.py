@@ -17,7 +17,7 @@ batch = 50
 n_signal = 23
 window_size = 2
 
-inputs = Input(shape=(n_signal, , 1))
+inputs = Input(shape=(n_signal, 512, 1))
 outputs = dilationnet(inputs)
 model = Model(inputs=inputs, outputs=outputs)
 model.summary()
