@@ -67,11 +67,9 @@ def dilationnet(inputs: Input):
     shape = list(inputs[0].shape)
     shape += [1]
     input_1 = layers.Reshape(shape)(inputs)
-    print(input_1)
     
     channels = tf.split(input_1, shape[-3], axis=-3)
-    channels = [layers.Reshape((512, 1))(x) for x in channels]
-    print(channels[0])
+    channels = [layers.Reshape((shape[-2], shape[-1]))(x) for x in channels]
 
     after_dilation = list()
     for i in range(len(channels)):

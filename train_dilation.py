@@ -15,6 +15,7 @@ from sklearn.metrics import accuracy_score, precision_score, recall_score
 from sklearn.model_selection import train_test_split, KFold
 
 import tensorflow as tf
+print(tf.__version__)
 from tensorflow.keras import layers, losses
 from tensorflow.keras.layers import Input
 from tensorflow.keras.models import Model
@@ -24,7 +25,7 @@ from pyedflib import EdfReader
 
 # private module
 from dilationmodel import dilationnet
-from readDataset import GetBatchIndexes, LoadDataset, Interval2Segments, Segments2Data
+from read_dataset import GetBatchIndexes, LoadDataset, Interval2Segments, Segments2Data
 
 
 # to use gpu

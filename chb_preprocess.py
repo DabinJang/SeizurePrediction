@@ -12,7 +12,8 @@ SOP = 30 #minutes
 SPH = 2 #minutes
 PREICTAL_EARLY_DURATION = 60 # min
 POSTICTAL_DURATION = 120 # min
-CHB_DIR = './data/CHB/'
+#CHB_DIR = './data/CHB/'
+CHB_DIR = f"/home/c/Users/jangdabin/Desktop/chb-mit-scalp-eeg-database-1.0.0"
 
 def get_chb_summary_info(summary_path: str):
     with open(summary_path, 'r') as f:
@@ -37,30 +38,28 @@ def get_chb_summary_info(summary_path: str):
             # if "number of seizure" not in info: Exception
             num_of_seizure = int(list(info[number_of_seizures_idx].split(": "))[-1])
             
-            if num_of_seizure == 0:
-                continue
-            
-            filename = list(info[file_name_idx].split(': '))[-1]
-            seizure_file = {'name': filename,
-                            'seizure': []}
+            if num_of_seizure>0:
+                filename = list(info[file_name_idx].split(': '))[-1]
+                seizure_file = {'name': filename,
+                                'seizure': []}
 
-            for i in range(num_of_seizure):
-                seizure_start_idx = number_of_seizures_idx + 2*i + 1
-                seizure_end_idx = number_of_seizures_idx + 2*i + 2
-                seizure_start = int(info[seizure_start_idx].split(": ")[-1].rstrip(' seconds'))
-                seizure_end = int(info[seizure_end_idx].split(": ")[-1].rstrip(' seconds'))
+                for i in range(num_of_seizure):
+                    seizure_start_idx = number_of_seizures_idx + 2*i + 1
+                    seizure_end_idx = number_of_seizures_idx + 2*i + 2
+                    seizure_start = int(info[seizure_start_idx].split(": ")[-1].rstrip(' seconds'))
+                    seizure_end = int(info[seizure_end_idx].split(": ")[-1].rstrip(' seconds'))
+                    seizure_file['seizure'].append([seizure_start, seizure_end])
                 
-                seizure_file['seizure'].append([seizure_start, seizure_end])
-            seizure_info_list.append(seizure_file)     
+                seizure_info_list.append(seizure_file)     
         
-        except: pass
+        except:
+            pass
                 
-        return seizure_info_list
+    return seizure_info_list
 
 
 def patient_info_chb():
     data_path = f"/home/c/Users/jangdabin/Desktop/chb-mit-scalp-eeg-database-1.0.0"
-
     file_list = natsort.natsorted(os.listdir(data_path)) # 이름순으로 순서 정렬
     patient_folder_list = []
 
@@ -100,7 +99,7 @@ def patient_info_chb():
                                 'postictal': list(),
                                 'interictal': list()}
 
-        summary_path = os.path.join(CHB_DIR, patient, patient+'-summary.txt')
+        summary_path = os.path.join(data_path, patient, patient+'-summary.txt')
         summary_info_list = get_chb_summary_info(summary_path)
         
         for summary_info in summary_info_list:
@@ -231,9 +230,9 @@ def patient_info_chb():
         name = name[:3].upper()+'0'+name[3:]
         for state in ictal_section_name:
             for start, end in current_patient[state]:
-                patient_segment_list.append([name, start, end, state])
+                patient_segment_list.append([name, start.timestamp(), end.timestamp(), state])
 
-    df = pd.DataFrame(patient_segment_list, columns=['name','start','end','state'])    
+    df = pd.DataFrame(sorted(patient_segment_list), columns=['name','start','end','state'])  
     df.to_csv('./patient_info_chb_origin.csv',index=False)
     
     
@@ -250,7 +249,6 @@ def patient_info_chb_interval():
     
     random.seed(100)
     patient_for_train = random.sample(chb_dir_list, k=int(len(chb_dir_list)*0.8))
-    print(len(patient_for_train), patient_for_train)
     for chb_dir in chb_dir_list:
         current_patient_info = patient_info[patient_info['name']==chb_dir]
         edf_dir_path = os.path.join(DATA_PATH, chb_dir)
@@ -275,14 +273,14 @@ def patient_info_chb_interval():
                 
                 if chb_dir in patient_for_train:
                     patient_info_train_list.append([edf_name,
-                                                    max(info_start, edf_start)-edf_start,
-                                                    min(info_end, edf_end)-edf_start,
+                                                    int(max(info_start, edf_start)-edf_start),
+                                                    int(min(info_end, edf_end)-edf_start),
                                                     state])
                 
                 else:
                     patient_info_test_list.append([edf_name,
-                                                    max(info_start, edf_start)-edf_start,
-                                                    min(info_end, edf_end)-edf_start,
+                                                    int(max(info_start, edf_start)-edf_start),
+                                                    int(min(info_end, edf_end)-edf_start),
                                                     state])
                     
 
@@ -335,4 +333,4 @@ def patient_info_chb_segment():
     df = pd.DataFrame(patient_info_chb_segment, columns=["name", "start", "duration", "state"])
 
 if __name__ == "__main__":
-    patient_info_chb()
+    patient_info_chb_interval()

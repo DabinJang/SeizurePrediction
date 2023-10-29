@@ -1,3 +1,4 @@
+from matplotlib.scale import scale_factory
 import pyedflib
 import numpy as np
 import pandas as pd
@@ -21,13 +22,13 @@ global state_list
 state_list = ['ictal', 'preictal_late', 'preictal_early', 'preictal_ontime', 'postictal','interictal']
 def LoadDataset(filename):
     df = pd.read_csv(filename)
-    columns = ['name','start','end']
+    columns = ['name','start','end','state']
     interval_dict = {}
     for state in state_list:
         condition = df['state'] == state
         df_state = df[condition]
         interval_dict[state] = df_state[columns].values.tolist()
-
+        
     return interval_dict
 
 # state = ['ictal', 'preictal_late', 'preictal_early', 'preictal_ontime', 'postictal','interictal']
@@ -47,16 +48,19 @@ def Interval2Segments(interval_list, data_path, window_size, sliding_size):
 
 def Segments2Data(segments):
     # segment[0] = 'filename', segment[1] = 'start', segment[2] = 'duration'
-    channels = ['Fp1-AVG', 'F3-AVG', 'C3-AVG', 'P3-AVG', 'Fp2-AVG', 'F4-AVG', 'C4-AVG', 'P4-AVG', 'F7-AVG', 'T1-AVG', 'T3-AVG', 'T5-AVG', 'O1-AVG', 'F8-AVG', 'T2-AVG', 'T4-AVG', 'T6-AVG', 'O2-AVG', 'Fz-AVG', 'Cz-AVG', 'Pz-AVG']
-    channels_chb = ['F4-C4', 'F8-T8', 'T7-P7', 'P7-O1', 'P8-O2', 'FZ-CZ', 'P7-T7', 'FP2-F4', 'P3-O1', 'C4-P4', 'FP1-F3', 'F7-T7', 'CZ-PZ', 'T7-FT9', 'FP2-F8', 'FT9-FT10', 'C3-P3', 'T8-P8', 'FT10-T8', 'P4-O2', 'F3-C3', 'FP1-F7']
-    
+    channels = ['Fp1-AVG', 'F3-AVG', 'C3-AVG', 'P3-AVG', 'Fp2-AVG',
+                'F4-AVG', 'C4-AVG', 'P4-AVG', 'F7-AVG', 'T1-AVG',
+                'T3-AVG', 'T5-AVG', 'O1-AVG', 'F8-AVG', 'T2-AVG',
+                'T4-AVG', 'T6-AVG', 'O2-AVG', 'Fz-AVG', 'Cz-AVG',
+                'Pz-AVG']
+    channels_chb = ['FP1-F7', 'F7-T7', 'T7-P7', 'P7-O1', 'FP1-F3',
+                    'F3-C3', 'C3-P3', 'P3-O1', 'FP2-F4', 'F4-C4',
+                    'C4-P4', 'P4-O2', 'FP2-F8', 'F8-T8', 'T8-P8',
+                    'P8-O2', 'FZ-CZ', 'CZ-PZ']
     signal_for_all_segments = []
     name = None
     read_end = 0
     f = None
-    cnt = 0
-    
-    segments.sort()
     
     for idx, segment in enumerate(segments):
         if not name == segment[0]:
@@ -73,7 +77,7 @@ def Segments2Data(segments):
         # 최근 세그먼트의 start+window_size 값보다 read_end 값이 작으면 (읽는 끝값) read_end 값 갱신
         if read_end < float(segment[1]) + float(segment[2]):
             read_end = float(segment[1]) + float(segment[2])
-        interval_sets.append([float(segment[1])-read_start, float(segment[1])+float(segment[2])-read_start ])
+        interval_sets.append([float(segment[1])-read_start, float(segment[1])+float(segment[2])-read_start, segment[3]])
 
         if not idx+1 >= len(segments) :
             # 파일이름이 같고, 다음 세그먼트의 시작시간이 더 크면서 현재 세그먼트의 시작시간 + window_size가 다음 세그먼트의 시작이랑 이어질 때
@@ -91,12 +95,12 @@ def Segments2Data(segments):
         x_upsample = np.linspace(0,10,int(256*(read_end-read_start)))
 
         seg = []
+        y = []
         for i in range(len(interval_sets)):
             seg.append([])
 
        
         if 'SNU' in name:
-            chn_num = len(channels)
             for channel in channels:
                 ch_idx = labels.index(channel)
                 edf_signal = f.readSignal(ch_idx,int(freq[ch_idx]*read_start),int(freq[ch_idx]*(read_end-read_start)))
@@ -111,25 +115,20 @@ def Segments2Data(segments):
                     
                     seg[j].append( list(signal[int(interval_sets[j][0] * 256) : int(interval_sets[j][1] * 256) ]) )
         
-        if 'CHB' in name:
-            try:
-                chn_num = len(channels_chb)
-                for channel in channels_chb:
-                    ch_idx = labels.index(channel)
-                    edf_signal = f.readSignal(ch_idx,int(freq[ch_idx]*read_start),int(freq[ch_idx]*(read_end-read_start)))
-                    # 256 Hz이하일 경우 256Hz로 interpolation을 이용한 upsampling
-                    if not freq[ch_idx] == 256:
-                        signal = np.interp(x_upsample,x, edf_signal)
-                    else:
-                        signal = edf_signal
-                    
-                    for j in range(len(interval_sets)):
-                        seg[j].append( list(signal[int(interval_sets[j][0] * 256) : int(interval_sets[j][1] * 256) ]) )
-        
-                for s in seg:    
-                    signal_for_all_segments.append(s)
-            except Exception as e:
-                print(e)
+        if 'CHB' in name:            
+            for channel in channels_chb:
+                ch_idx = labels.index(channel)
+                edf_signal = f.readSignal(ch_idx,int(freq[ch_idx]*read_start),int(freq[ch_idx]*(read_end-read_start)))
+                # 256 Hz이하일 경우 256Hz로 interpolation을 이용한 upsampling
+                if not freq[ch_idx] == 256:
+                    signal = np.interp(x_upsample,x, edf_signal)
+                else:
+                    signal = edf_signal
+                
+                for j in range(len(interval_sets)):
+                    seg[j].append( list(signal[int(interval_sets[j][0] * 256) : int(interval_sets[j][1] * 256) ]) )
+            for s in seg:    
+                signal_for_all_segments.append(s)
 
         skip_start = False
             
@@ -137,3 +136,92 @@ def Segments2Data(segments):
          f.close()
 
     return np.array(signal_for_all_segments)/10
+
+
+
+def Interval2Segments_v2(interval_list, data_path, window_size, sliding_size):
+    segments_list = []
+    for interval in interval_list:
+        start = int(interval[1])
+        end = int(interval[2])
+        state = interval[3]
+        segment_num = int(((end-start-window_size)/sliding_size))+1
+        for i in range(segment_num):
+            segments_list.append([data_path+'/'+(interval[0].split('_'))[0]+'/'+interval[0]+'.edf', start, window_size, state])
+            start += sliding_size
+    return segments_list
+
+
+def Segments2Data_v2(segments):
+    # segment[0] = 'filename',
+    # segment[1] = 'start',
+    # segment[2] = 'duration'
+    # segment[3] = 'state'
+    channels_dict = \
+        {
+            "SNU": ['Fp1-AVG', 'F3-AVG', 'C3-AVG', 'P3-AVG', 'Fp2-AVG',
+                    'F4-AVG', 'C4-AVG', 'P4-AVG', 'F7-AVG', 'T1-AVG',
+                    'T3-AVG', 'T5-AVG', 'O1-AVG', 'F8-AVG', 'T2-AVG',
+                    'T4-AVG', 'T6-AVG', 'O2-AVG', 'Fz-AVG', 'Cz-AVG',
+                    'Pz-AVG'],
+            "CHB": ['FP1-F7', 'F7-T7', 'T7-P7', 'P7-O1', 'FP1-F3',
+                    'F3-C3', 'C3-P3', 'P3-O1', 'FP2-F4', 'F4-C4',
+                    'C4-P4', 'P4-O2', 'FP2-F8', 'F8-T8', 'T8-P8',
+                    'P8-O2', 'FZ-CZ', 'CZ-PZ']
+        }
+        
+    x = list() # return value
+    y = list() # return value
+    
+    # combine segments on same file to read once.
+    segments_on_same_file_dict = dict()
+    
+    for segment in segments:
+        file, start, duration, state = segment
+        try:
+            segments_on_same_file_dict[file].append([start, duration, state])
+        except:
+            segments_on_same_file_dict[file] = [[start, duration, state]]
+            
+    for file, segment_list in segments_on_same_file_dict.items():
+        if "CHB" in file:
+            channels = channels_dict["CHB"]
+        if "SNU" in file:
+            channels = channels_dict["SNU"]
+    
+        edf_reader = pyedflib.EdfReader(file)
+        edf_labels = edf_reader.getSignalLabels()
+        edf_freq = list(map(int, edf_reader.getSampleFrequencies()))
+
+        if not all([(channel in edf_labels) for channel in channels]):
+            continue
+            
+        for segment_info in segment_list:
+            start, duration, state = segment_info
+            
+            segment_data = []
+            scale_factor = 10
+            for channel in channels:
+                channel_index = edf_labels.index(channel)
+                channel_freq = edf_freq[channel_index]
+                start_index = int(start)*channel_freq
+                duration_length = int(duration)*channel_freq
+
+                signal = edf_reader.readSignal(channel_index,start_index, duration_length)
+
+                scaled_signal = signal/scale_factor
+                segment_data.append(signal)
+
+            x.append(segment_data)
+
+            if state == 'preictal_ontime':
+                y.append(1)
+            else:
+                y.append(0)
+
+        edf_reader.close()
+    
+    x_array, y_array = np.array(x), np.array(y)
+    return x_array, y_array
+    
+   
