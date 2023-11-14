@@ -6,6 +6,8 @@ import sys
 import traceback
 import random
 import operator
+import scipy
+import os
 
 def GetBatchIndexes(data_len, batch_num):
     batch_size = int(data_len / batch_num)
@@ -15,7 +17,6 @@ def GetBatchIndexes(data_len, batch_num):
     for i in range(batch_num):
         batch_idx_mask.append(idx_list[batch_size*i:batch_size*(i+1)])
     return batch_idx_mask
-
 
 # 데이터 정리 
 global state_list
@@ -43,6 +44,16 @@ def Interval2Segments(interval_list, data_path, window_size, sliding_size):
             segments_list.append([data_path+'/'+(interval[0].split('_'))[0]+'/'+interval[0]+'.edf', start, window_size])
             start += sliding_size
 
+    return segments_list
+
+
+def Interval2Segments_v2(interval_list, data_path, window_size, sliding_size):
+    segments_list = []
+    for interval in interval_list:
+        name, start, end, state = interval[0], int(interval[1]), int(interval[2]), interval[3]
+        segment_num = int(((end-start-window_size)/sliding_size))+1
+        for i in range(segment_num):
+            segments_list.append([os.path.join(data_path,(interval[0].split('_'))[0], name+'.edf'), start+sliding_size*i, window_size, state])
     return segments_list
 
 
@@ -99,34 +110,35 @@ def Segments2Data(segments):
         for i in range(len(interval_sets)):
             seg.append([])
 
-       
+        target_freq =120;
         if 'SNU' in name:
             for channel in channels:
                 ch_idx = labels.index(channel)
                 edf_signal = f.readSignal(ch_idx,int(freq[ch_idx]*read_start),int(freq[ch_idx]*(read_end-read_start)))
                 
                 # 256 Hz이하일 경우 256Hz로 interpolation을 이용한 upsampling
-                if not freq[ch_idx] == 256:
+                
+                if not freq[ch_idx] == target_freq:
                     signal = np.interp(x_upsample,x, edf_signal)
                 else:
                     signal = edf_signal
                 
                 for j in range(len(interval_sets)):
                     
-                    seg[j].append( list(signal[int(interval_sets[j][0] * 256) : int(interval_sets[j][1] * 256) ]) )
+                    seg[j].append( list(signal[int(interval_sets[j][0] * target_freq) : int(interval_sets[j][1] * target_freq) ]) )
         
         if 'CHB' in name:            
             for channel in channels_chb:
                 ch_idx = labels.index(channel)
                 edf_signal = f.readSignal(ch_idx,int(freq[ch_idx]*read_start),int(freq[ch_idx]*(read_end-read_start)))
                 # 256 Hz이하일 경우 256Hz로 interpolation을 이용한 upsampling
-                if not freq[ch_idx] == 256:
+                if not freq[ch_idx] == target_freq:
                     signal = np.interp(x_upsample,x, edf_signal)
                 else:
                     signal = edf_signal
                 
                 for j in range(len(interval_sets)):
-                    seg[j].append( list(signal[int(interval_sets[j][0] * 256) : int(interval_sets[j][1] * 256) ]) )
+                    seg[j].append( list(signal[int(interval_sets[j][0] * target_freq) : int(interval_sets[j][1] * target_freq) ]) )
             for s in seg:    
                 signal_for_all_segments.append(s)
 
@@ -136,20 +148,6 @@ def Segments2Data(segments):
          f.close()
 
     return np.array(signal_for_all_segments)/10
-
-
-
-def Interval2Segments_v2(interval_list, data_path, window_size, sliding_size):
-    segments_list = []
-    for interval in interval_list:
-        start = int(interval[1])
-        end = int(interval[2])
-        state = interval[3]
-        segment_num = int(((end-start-window_size)/sliding_size))+1
-        for i in range(segment_num):
-            segments_list.append([data_path+'/'+(interval[0].split('_'))[0]+'/'+interval[0]+'.edf', start, window_size, state])
-            start += sliding_size
-    return segments_list
 
 
 def Segments2Data_v2(segments):
@@ -170,8 +168,8 @@ def Segments2Data_v2(segments):
                     'P8-O2', 'FZ-CZ', 'CZ-PZ']
         }
         
-    x = list() # return value
-    y = list() # return value
+    x = [] # return value
+    y = [] # return value
     
     # combine segments on same file to read once.
     segments_on_same_file_dict = dict()
@@ -185,43 +183,43 @@ def Segments2Data_v2(segments):
             
     for file, segment_list in segments_on_same_file_dict.items():
         if "CHB" in file:
-            channels = channels_dict["CHB"]
-        if "SNU" in file:
-            channels = channels_dict["SNU"]
-    
-        edf_reader = pyedflib.EdfReader(file)
-        edf_labels = edf_reader.getSignalLabels()
-        edf_freq = list(map(int, edf_reader.getSampleFrequencies()))
+            used_channels = channels_dict["CHB"]
+        elif "SNU" in file:
+            used_channels = channels_dict["SNU"]
+        else: continue
+        
+        with pyedflib.EdfReader(file) as edf_reader:
+            edf_labels = edf_reader.getSignalLabels()
+            edf_freq = list(map(int, edf_reader.getSampleFrequencies()))
 
-        if not all([(channel in edf_labels) for channel in channels]):
-            continue
-            
-        for segment_info in segment_list:
-            start, duration, state = segment_info
-            
-            segment_data = []
-            scale_factor = 10
-            for channel in channels:
-                channel_index = edf_labels.index(channel)
-                channel_freq = edf_freq[channel_index]
-                start_index = int(start)*channel_freq
-                duration_length = int(duration)*channel_freq
+            if not all([(channel in edf_labels) for channel in used_channels]): continue
+                
+            for segment_info in segment_list:
+                start, duration, state = segment_info
+                
+                segment_data = []
+                scale_factor = 10
+                target_freq = 128
+                
+                for channel in used_channels:
+                    channel_index = edf_labels.index(channel)
+                    channel_freq = edf_freq[channel_index]
+                    start_index = int(start)*channel_freq
+                    duration_length = int(duration)*channel_freq
 
-                signal = edf_reader.readSignal(channel_index,start_index, duration_length)
+                    signal = edf_reader.readSignal(channel_index,start_index, duration_length)
+                    
+                    resample_len = int(len(signal)*target_freq/channel_freq)
+                    if channel_freq!=target_freq:
+                        signal = scipy.signal.resample(signal, resample_len)
+                        
+                    scaled_signal = signal/scale_factor
+                    segment_data.append(scaled_signal)
 
-                scaled_signal = signal/scale_factor
-                segment_data.append(signal)
-
-            x.append(segment_data)
-
-            if state == 'preictal_ontime':
-                y.append(1)
-            else:
-                y.append(0)
-
-        edf_reader.close()
-    
-    x_array, y_array = np.array(x), np.array(y)
-    return x_array, y_array
-    
-   
+                x.append(segment_data)
+                
+                if state == 'preictal_ontime':
+                    y.append(1)
+                else:
+                    y.append(0)
+    return np.array(x), np.array(y)
