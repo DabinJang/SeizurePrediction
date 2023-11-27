@@ -6,23 +6,25 @@ from tensorflow.keras import Input, layers
 from tensorflow.keras.models import Model
 
 
+def single_dilation_layer(dilation_rate, filters, kernel_size):
+    return layers.Conv1D(dilation_rate=dilation_rate,
+                         filters=filters,
+                         kernel_size=kernel_size,
+                         activation='relu',
+                         padding='same',
+                         strides=1)
+
 def dilation_layer(inputs: Input,
                    dilation_rate=[1, 2, 4, 8, 16, 32],
                    filters=2,
                    kernel_size=5):
 
-    def conv1d_with_dilation_rate(dr):
-        x = layers.Conv1D(dilation_rate=dr, filters=filters,
-                          kernel_size=kernel_size, activation='relu',
-                          padding='same', strides=1)
-        return x
-
-    dilation_layers = [conv1d_with_dilation_rate(dr) for dr in dilation_rate]
-
+    dilation_layers = [single_dilation_layer(dr, filters, kernel_size) for dr in dilation_rate]
+   
     outputs_dilation_layers = [layer(inputs) for layer in dilation_layers]
-
+    
     concat_layers = layers.Concatenate(axis=-1)(outputs_dilation_layers)
-
+    
     return concat_layers
 
 
@@ -58,6 +60,7 @@ def dilation1ch(inputs):
     x = layers.MaxPool1D(3, strides=1, padding='same')(x)
     # average pooling
     x = layers.GlobalAvgPool1D()(x)
+    
     return x
 
 
@@ -77,5 +80,6 @@ def dilationnet(inputs: Input):
 
     # output
     concat_layers = tf.concat(after_dilation, axis=-1)
-    x = layers.Dense(1)(concat_layers)
+    x = layers.Dense(len(channels))(concat_layers)
+    x = layers.Dense(2,activation='softmax')(x)
     return x
