@@ -1,7 +1,9 @@
+from operator import contains
 import os
 import numpy as np
 import pandas as pd
 import scipy
+from sklearn.model_selection import train_test_split
 
 import tensorflow as tf
 import pyedflib
@@ -10,7 +12,9 @@ global state_list
 global total_channels
 global used_channels
 
-state_list = ['ictal', 'preictal_late', 'preictal_early', 'preictal_ontime', 'postictal','interictal']
+state_list = ['preictal_early', 'preictal_ontime', 'preictal_late', 'ictal', 'postictal',
+              'interictal']
+
 
 def get_batch_index(data_len, batch_num):
     batch_size = int(data_len / batch_num)
@@ -22,19 +26,43 @@ def get_batch_index(data_len, batch_num):
     return batch_idx_mask
 
 
-def load_dataset(filename):
-    global state_list
-    df = pd.read_csv(filename)
+def load_dataset(filename)->pd.DataFrame:
+    return pd.read_csv(filename)
+
+
+def groupby_state(df)->dict:
     columns = ['name','start','end','state']
     interval_dict = {}
-    for state in state_list:
-        condition = df['state'] == state
-        df_state = df[condition]
-        interval_dict[state] = df_state[columns].values.tolist()
-        
+    for state in df["state"].unique():
+        interval_dict[state] = df[columns].values.tolist()
     return interval_dict
 
 
+def psm_train_test_split(df:pd.DataFrame, train_size=.8, test_size=.2):
+    states = df['state'].unique()
+
+    df_train = pd.DataFrame([], columns=df.columns)
+    df_test = pd.DataFrame([], columns=df.columns)
+
+    for state in states:
+        this_state = df[df['state']==state]
+        n_sample = this_state.index.size
+        n_test = max(1, int(n_sample*test_size)) # number of test sample should be more than 1 
+        test_index = np.random.choice(range(n_sample),n_test,replace=False)
+        train_index = [x for x in range(n_sample) if x not in test_index]
+        df_train = pd.concat([df_train, this_state.iloc[train_index, :]], axis=0)
+        df_test = pd.concat([df_test, this_state.iloc[test_index, :]], axis=0)
+
+    return df_train, df_test
+    
+def get_used_state(df:pd.DataFrame, state_label:dict):
+    df_selected = list()
+    for idx_, row in df.iterrows():
+        if state_label[row['state']]!=None:
+            df_selected.append(row)
+    return pd.DataFrame(df_selected, columns=df.columns)
+
+    
 def interval_to_segment(interval_list, edf_dir, window_size, sliding_size):
     segments_list = []
     for interval in interval_list:
@@ -47,22 +75,13 @@ def interval_to_segment(interval_list, edf_dir, window_size, sliding_size):
     return segments_list
 
 
-def segment_to_data(segments, channels:list, ):
-    state_y = {'preictal_early': 0,
-               'preictal_ontime': 1,
-               'preictal_late': 0,
-               'ictal': 0,
-               'postictal': 0,
-               'interictal': 0}
-    
-    num_classes = len(np.unique(list(state_y.values())))
+def segment_to_data(segments, state_label:dict, channels:list, sampling_frequency:int=128):
+    used_state = [x for x in state_label.values() if x!=None]
+    num_classes = len(np.unique(used_state))
     ONEHOT = True
     
     chb_channel_label_file_dir = './'
     chb_channel_label_file = "chb_channel_label.csv"
-    if any([file=="chb_channel_label.csv" for file in os.listdir(chb_channel_label_file_dir)]):
-        chb_channel = pd.read_csv(os.path.join(chb_channel_label_file_dir,chb_channel_label_file))
-        channels = chb_channel['label'].to_list()
     
     x = [] # return value
     y = [] # return value
@@ -95,7 +114,7 @@ def segment_to_data(segments, channels:list, ):
                 
                 segment_data = []
                 scale_factor = 10
-                target_freq = 128
+                target_freq = sampling_frequency
                 
                 for channel in used_channels:
                     channel_index = edf_labels.index(channel)
@@ -113,7 +132,7 @@ def segment_to_data(segments, channels:list, ):
                     segment_data.append(scaled_signal)
 
                 x.append(segment_data)
-                y.append(state_y[state])
+                y.append(state_label[state])
     
     x=np.array(x)
     y=np.array(y)
@@ -123,16 +142,23 @@ def segment_to_data(segments, channels:list, ):
         
     return x, y
 
-
 class DataGenerator(tf.keras.utils.Sequence):
-    def __init__(self, data:list, batch_size, proportion={}, shuffle=True, save_y=False):
+    def __init__(self, data:list, state_label, channels, batch_size, proportion, balance_data=True, shuffle=True, save_y=False):
         self.data = data
-        self.shuffle = shuffle
+        self.state_label = state_label
+        self.channels = channels
         self.batch_size = batch_size
+        self.proportion = proportion
+        self.balance_data = balance_data
+        self.shuffle = shuffle
         self.save_y = save_y
-        self.proportion = proportion if proportion else {0:.5}
         
-        self.x = self.balanced_sampling(proportion=self.proportion)
+        if self.balance_data:
+            self.x = self.balanced_sampling(proportion=self.proportion)
+        else:
+            self.x = []
+            self.x.extend(self.data)
+        
         self.indices = np.arange(len(self.x))
         self.y = list()
         
@@ -145,21 +171,21 @@ class DataGenerator(tf.keras.utils.Sequence):
     def __getitem__(self, idx):
         indices = self.indices[idx*self.batch_size:(idx+1)*self.batch_size]
         input_seg = [self.x[i] for i in indices]
-        batch_x, batch_y = segment_to_data(input_seg, channels = )
+        batch_x, batch_y = segment_to_data(input_seg, self.state_label, channels=self.channels, sampling_frequency=128)
         if self.save_y:
             self.y.extend(batch_y)
         #print(batch_x.shape, batch_y.shape)
         return batch_x, batch_y
         
     def on_epoch_end(self):
-        self.x = self.balanced_sampling(proportion={0:.5})
+        self.x = self.balanced_sampling(proportion=self.proportion)
         if self.shuffle == True:
             np.random.shuffle(self.indices)
             
     def on_epoch_start(self):
         self.y = list()
 
-    def balanced_sampling(self, proportion={0:.5}):
+    def balanced_sampling(self, proportion):
         data_list = self.data
         data_list_len = len(data_list)
         try:
@@ -225,7 +251,7 @@ class ProportionValueError(Exception):
 class ProportionSumError(Exception):
     pass
 
-class DatasetHeader:
+class AboutDatasetHeader:
     def __init__(self):
         self.datasets = ['snu', 'chb']
         
@@ -263,7 +289,49 @@ class DatasetHeader:
         if dataset not in self.datasets:
             self.datasets.append(dataset)        
         self.edf_dir[dataset] = path
+        
+    def get_info(self, dataset):
+        pass
 
-if __name__=="__main__":
-    pass
+class DatasetHeader:
+    def __init__(self,
+                 name:str,
+                 dir:str,
+                 patient_info:str,
+                 train_info:str='',
+                 test_info:str='',
+                 channels:dict=dict(),
+                 ):
+        self.__dataset_channels = {
+            "snu": [
+                'Fp1-AVG', 'F3-AVG', 'C3-AVG', 'P3-AVG', 'Fp2-AVG',
+                'F4-AVG', 'C4-AVG', 'P4-AVG', 'F7-AVG', 'T1-AVG',
+                'T3-AVG', 'T5-AVG', 'O1-AVG', 'F8-AVG', 'T2-AVG',
+                'T4-AVG', 'T6-AVG', 'O2-AVG', 'Fz-AVG', 'Cz-AVG',
+                'Pz-AVG'
+                ],
+            "chb": [
+                'FP1-F7', 'F7-T7', 'T7-P7', 'P7-O1', 'FP1-F3',
+                'F3-C3', 'C3-P3', 'P3-O1', 'FP2-F4', 'F4-C4',
+                'C4-P4', 'P4-O2', 'FP2-F8', 'F8-T8', 'T8-P8',
+                'P8-O2', 'FZ-CZ', 'CZ-PZ'
+                ],
+            }
+        
+        self.name = name
+        self.dir = dir
+        self.patient_info = patient_info
+        self.train_info = train_info
+        self.test_info = test_info
+        self.channels = channels
+        self.used_channels = channels
+        
+        if (not channels):
+            for dataset_name in list(self.__dataset_channels.keys()):
+                if dataset_name in name:
+                    self.channels = self.__dataset_channels[dataset_name]
+                    self.used_channels = self.__dataset_channels[dataset_name]
+                    break
 
+    def set_used_channels(self, used_channels):
+        self.used_channels = used_channels
